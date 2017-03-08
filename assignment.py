@@ -3,9 +3,11 @@
 import numpy as np
 import pandas as pd
 from time import time
-from IPython.display import display  # 允许为DataFrame使用display()
+# 允许为DataFrame使用display()
+from IPython.display import display
 # 导入sklearn.preprocessing.StandardScaler
 from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 # 从sklearn中导入两个评价指标 - fbeta_score和accuracy_score
@@ -15,6 +17,9 @@ import visuals as vs
 # 从sklearn中导入三个监督学习模型
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import LinearSVC
+from sklearn.model_selection import GridSearchCV, StratifiedShuffleSplit
+from sklearn.metrics import make_scorer
+from sklearn.base import clone
 
 # 导入人口普查数据
 data = pd.read_csv("census.csv")
@@ -169,4 +174,99 @@ for clf in [clf_A, clf_B, clf_C]:
             train_predict(clf, samples, X_train, y_train, X_test, y_test)
 
 # 对选择的三个模型得到的评价结果进行可视化
-vs.evaluate(results, accuracy, fscore)
+# vs.evaluate(results, accuracy, fscore)
+
+# 问题 3 - 选择最佳的模型
+# 梯度增强分类器模型（GBC）是我的第一选择。上述测试的结果显示GBC具有最高的准确性和fbeta得分，
+# 由于我以前使用虚拟变量格式化数据集，因此使用决策树预测二进制输出是合理的。
+# 此外，虽然逻辑回归似乎是一个可行的候选人，有更多的选择调整GBC模型参数以后在项目中。
+
+# 问题 4 - 用通俗的话解释模型
+# GBC模型是从常见的决策树创建的。这些“树”是算法内的决策叉，它基于当前被“树”提出的输入来驱动输出。
+# 在做出“决定”之后，输出被跟随到另一个分支，其中询问和分析另一个问题或数据的参数，并且该过程继续，
+# 直到达到最终输出，在这种情况下是否正在分析输入个人的迹象表明收入超过50K。
+
+# 这是一个决策树。梯度增强来自于一遍又一遍地重复这种迭代，更加强调收入被错误估计的人。
+# 这样，模型通过这些多次迭代来训练自己，以了解什么数据难以分类，什么不是，每次都给自己一点线索。
+# 随着时间的推移，模型结合了这些小小的线索，以了解数据的真实性质，即使它可能看起来很复杂的用户或客户。
+
+# 实施：模型校正
+# 初始化分类器
+clf = GradientBoostingClassifier(random_state=0)
+
+# 创建你希望调节的参数列表
+parameters = {'n_estimators': [50, 100, 150], 'learning_rate': [0.05, 0.10, 0.15], 'max_depth': range(2, 7)}
+
+# 创建一个fbeta_score打分对象
+scorer = make_scorer(fbeta_score, beta=0.5)
+
+cv_sets = ShuffleSplit(n_splits=10, test_size=0.20, random_state=0)
+
+# 在分类器上使用网格搜索，使用'scorer'作为评价函数
+grid_obj = GridSearchCV(clf, parameters, scoring=scorer)
+
+# 用训练数据拟合网格搜索对象并找到最佳参数
+grid_fit = grid_obj.fit(X_train, y_train)
+
+# 得到estimator
+best_clf = grid_fit.best_estimator_
+
+# 使用没有调优的模型做预测
+predictions = (clf.fit(X_train, y_train)).predict(X_test)
+best_predictions = best_clf.predict(X_test)
+
+# 调优参数
+print("Parameter 'n_estimators' is {} for the optimal model.".format(best_clf.get_params()['n_estimators']))
+print("Parameter 'learning_rate' is {} for the optimal model.".format(best_clf.get_params()['learning_rate']))
+print("Parameter 'max_depth' is {} for the optimal model.".format(best_clf.get_params()['max_depth']))
+# 汇报调参前和调参后的分数
+print("Unoptimized model\n------")
+print("Accuracy score on testing data: {:.4f}".format(accuracy_score(y_test, predictions)))
+print("F-score on testing data: {:.4f}".format(fbeta_score(y_test, predictions, beta=0.5)))
+print("\nOptimized Model\n------")
+print("Final accuracy score on the testing data: {:.4f}".format(accuracy_score(y_test, best_predictions)))
+print("Final F-score on the testing data: {:.4f}".format(fbeta_score(y_test, best_predictions, beta=0.5)))
+
+# 问题 5 - 最终模型评估
+# 优化的值比未优化的模型值更好，并且都远高于基准预测器。找到optomized模型花费了可观的时间量，
+# 但提高模型的准确性甚至一个百分点似乎值得的时间成本和洞察模型。虽然，如果我试图优化所有的监督学习技术，我看到时间成本可以开始快速堆叠。
+
+# 问题 6 - 观察特征相关性
+# 练习 - 提取特征重要性
+# 在训练集上训练一个监督学习模型
+model = GradientBoostingClassifier(random_state=0).fit(X_train, y_train)
+
+# 提取特征重要性
+importances = model.feature_importances_
+
+# 绘图
+# vs.feature_plot(importances, X_train, y_train)
+
+# 问题 7 - 提取特征重要性
+
+# 特征选择
+# 导入克隆模型的功能
+
+
+# 减小特征空间
+X_train_reduced = X_train[X_train.columns.values[(np.argsort(importances)[::-1])[:5]]]
+X_test_reduced = X_test[X_test.columns.values[(np.argsort(importances)[::-1])[:5]]]
+
+# 在前面的网格搜索的基础上训练一个“最好的”模型
+clf = (clone(best_clf)).fit(X_train_reduced, y_train)
+
+# 做一个新的预测
+reduced_predictions = clf.predict(X_test_reduced)
+
+# 对于每一个版本的数据汇报最终模型的分数
+print("Final Model trained on full data\n------")
+print("Accuracy on testing data: {:.4f}".format(accuracy_score(y_test, best_predictions)))
+print("F-score on testing data: {:.4f}".format(fbeta_score(y_test, best_predictions, beta=0.5)))
+print("\nFinal Model trained on reduced data\n------")
+print("Accuracy on testing data: {:.4f}".format(accuracy_score(y_test, reduced_predictions)))
+print("F-score on testing data: {:.4f}".format(fbeta_score(y_test, reduced_predictions, beta=0.5)))
+
+# 问题 8 - 特征选择的影响
+# 缩减模型的精度为-3％，与全数据训练模型相比，其fbeta为-0.05。如果训练时间是一个因素，
+# 这可能是一个可能的解决方案，但如果是这种情况，可能值得切换到逻辑回归模型。
+# 从本报告的早期的图表，其训练和预测的时间都几乎是瞬时的，具有更高的准确性和fbeta分数比降低特征梯度增强分类器模型。
