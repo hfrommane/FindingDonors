@@ -247,7 +247,6 @@ importances = model.feature_importances_
 # 特征选择
 # 导入克隆模型的功能
 
-
 # 减小特征空间
 X_train_reduced = X_train[X_train.columns.values[(np.argsort(importances)[::-1])[:5]]]
 X_test_reduced = X_test[X_test.columns.values[(np.argsort(importances)[::-1])[:5]]]
